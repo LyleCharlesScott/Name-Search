@@ -3,60 +3,72 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Baby Name Trend Visualizer</title>
-    <!-- Tailwind CSS for styling -->
+    <title>Baby Name Trend Visualizer (Modal Edition)</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <!-- Chart.js for data visualization -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Extra styling for the modal overlay and its content */
+        .modal-overlay {
+            background-color: rgba(15, 23, 42, 0.8); /* slate-900 with opacity */
+            backdrop-filter: blur(4px);
+        }
+    </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen font-sans">
 
-    <div class="max-w-5xl mx-auto px-4 py-8">
-        <!-- Header -->
+    <div class="max-w-7xl mx-auto px-4 py-8">
         <header class="text-center mb-10">
             <h1 class="text-4xl font-extrabold tracking-tight text-slate-900 mb-2">US Baby Name Explorer</h1>
-            <p class="text-slate-500">Type a name to search historical census trends and relative popularity rank over time.</p>
+            <p class="text-slate-500">Type a name to search trends. Click a chart to enlarge it.</p>
             <div id="loadingStatus" class="mt-4 text-sm font-medium text-amber-600 animate-pulse">Loading name database into memory...</div>
         </header>
 
-        <!-- Search Section -->
-        <div class="relative max-w-md mx-auto mb-12">
+        <div class="relative max-w-lg mx-auto mb-12">
             <label for="nameSearch" class="block text-sm font-semibold text-slate-700 mb-2">Search Name</label>
             <input 
                 type="text" 
                 id="nameSearch" 
                 placeholder="Start typing a name... (e.g., Mary, John)" 
                 disabled
-                class="w-full px-4 py-3 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none disabled:bg-slate-100 disabled:cursor-not-allowed transition"
+                class="w-full px-4 py-3.5 border border-slate-300 rounded-lg shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none disabled:bg-slate-100 disabled:cursor-not-allowed transition text-lg"
             >
-            <!-- Dropdown Autocomplete Menu -->
             <ul 
                 id="autocompleteList" 
-                class="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-60 overflow-y-auto hidden z-50 divide-y divide-slate-100"
+                class="absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-2xl max-h-80 overflow-y-auto hidden z-50 divide-y divide-slate-100"
             ></ul>
         </div>
 
-        <!-- Dashboard Content -->
         <div id="dashboard" class="hidden">
-            <h2 id="selectedNameTitle" class="text-3xl font-bold text-center text-slate-900 mb-8 capitalize"></h2>
+            <h2 id="selectedNameTitle" class="text-4xl font-bold text-center text-slate-900 mb-10 capitalize"></h2>
             
-            <!-- Charts Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- Count Chart -->
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                    <h3 class="text-lg font-bold text-slate-700 mb-4 text-center">Total Registered Births</h3>
-                    <div class="relative h-80">
+            <div class="grid grid-cols-1 gap-10">
+                <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-100 cursor-zoom-in" onclick="openModal('count')">
+                    <h3 class="text-xl font-bold text-slate-800 mb-6 text-center">Total Registered Births (Click to Enlarge)</h3>
+                    <div class="relative h-[500px]">
                         <canvas id="countChart"></canvas>
                     </div>
                 </div>
 
-                <!-- Rank Chart -->
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
-                    <h3 class="text-lg font-bold text-slate-700 mb-4 text-center">Popularity Rank (Inverted)</h3>
-                    <div class="relative h-80">
+                <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-100 cursor-zoom-in" onclick="openModal('rank')">
+                    <h3 class="text-xl font-bold text-slate-800 mb-6 text-center">Popularity Rank (Click to Enlarge)</h3>
+                    <div class="relative h-[500px]">
                         <canvas id="rankChart"></canvas>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="chartModal" class="fixed inset-0 z-[100] modal-overlay hidden flex items-center justify-center p-4 md:p-10">
+        <div class="bg-white rounded-2xl shadow-2xl w-full h-full max-w-[95%] max-h-[95%] flex flex-col p-6 md:p-10 relative">
+            
+            <div class="flex items-center justify-between mb-6">
+                <h3 id="modalChartTitle" class="text-2xl md:text-3xl font-bold text-slate-900">Enlarged Chart</h3>
+                <button onclick="closeModal()" class="text-slate-500 hover:text-red-600 transition text-4xl font-bold p-2 leading-none">&times;</button>
+            </div>
+
+            <div class="flex-grow relative min-h-0">
+                <canvas id="modalChartCanvas"></canvas>
             </div>
         </div>
     </div>
@@ -66,6 +78,9 @@
         let nameTrie = null;
         let countChartInstance = null;
         let rankChartInstance = null;
+        let modalChartInstance = null; // New instance for the modal
+        let currentChartData = null;   // Temporarily store data for the modal to use
+        let currentPreferredGender = null;
 
         // --- DOM Elements ---
         const searchInput = document.getElementById('nameSearch');
@@ -73,10 +88,12 @@
         const loadingStatus = document.getElementById('loadingStatus');
         const dashboard = document.getElementById('dashboard');
         const selectedNameTitle = document.getElementById('selectedNameTitle');
+        const chartModal = document.getElementById('chartModal');
+        const modalChartTitle = document.getElementById('modalChartTitle');
 
         // --- Initialize Application & Fetch Data ---
         // Replace 'combined_names_trie.json' with your exact file name if different
-        fetch('names_trie.json')
+        fetch('combined_names_trie.json')
             .then(response => {
                 if (!response.ok) throw new Error("Could not find the JSON data file.");
                 return response.json();
@@ -85,12 +102,12 @@
                 nameTrie = data;
                 loadingStatus.classList.add('hidden');
                 searchInput.disabled = false;
-                searchInput.placeholder = "Start typing a name...";
+                searchInput.placeholder = "Search for a name...";
                 searchInput.focus();
             })
             .catch(error => {
                 console.error(error);
-                loadingStatus.textContent = "Error loading database. Make sure your JSON file is in the same directory.";
+                loadingStatus.textContent = "Error loading database. Check console for details.";
                 loadingStatus.classList.remove('text-amber-600', 'animate-pulse');
                 loadingStatus.classList.add('text-red-600');
             });
@@ -98,10 +115,21 @@
         // --- Event Listeners ---
         searchInput.addEventListener('input', handleTyping);
         
-        // Hide autocomplete when clicking outside the input or list
+        // Hide autocomplete when clicking outside
         document.addEventListener('click', (e) => {
             if (e.target !== searchInput && e.target !== autocompleteList) {
                 autocompleteList.classList.add('hidden');
+            }
+            // Close modal when clicking on the dark overlay (but not the modal content)
+            if (e.target === chartModal) {
+                closeModal();
+            }
+        });
+
+        // Close modal on 'Esc' key press
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !chartModal.classList.contains('hidden')) {
+                closeModal();
             }
         });
 
@@ -117,40 +145,28 @@
                 return;
             }
 
-            // Step 1: Traverse the Trie down to the node of the current typed prefix
             let currentNode = nameTrie;
             for (let i = 0; i < query.length; i++) {
                 const char = query[i];
                 if (currentNode[char]) {
                     currentNode = currentNode[char];
                 } else {
-                    // Prefix doesn't exist in our Trie
                     renderAutocomplete([]);
                     return;
                 }
             }
 
-            // Step 2: From that prefix node, find all complete names underneath it
             const matchedNames = [];
             findAllNamesFromNode(currentNode, query, matchedNames);
-
-            // Sort matches alphabetically and limit to 10 suggestions
             matchedNames.sort();
             renderAutocomplete(matchedNames.slice(0, 10));
         }
 
-        /**
-         * Recursively searches down a Trie node to extract all downstream complete names.
-         */
         function findAllNamesFromNode(node, currentPrefix, results) {
-            // If this node represents a completed name, reconstruct it
             if (node.$isName) {
-                // Convert back from ALL CAPS to Title Case for nice presentation
                 const prettyName = currentPrefix.charAt(0) + currentPrefix.slice(1).toLowerCase();
                 results.push({ name: prettyName, node: node });
             }
-
-            // Loop through all keys that are single capital letters (ignoring metadata like $isName)
             for (const key in node) {
                 if (key.length === 1 && key >= 'A' && key <= 'Z') {
                     findAllNamesFromNode(node[key], currentPrefix + key, results);
@@ -158,22 +174,16 @@
             }
         }
 
-        /**
-         * Renders the matching autocomplete list to the UI.
-         */
         function renderAutocomplete(matches) {
             if (matches.length === 0) {
                 autocompleteList.classList.add('hidden');
                 return;
             }
-
             autocompleteList.innerHTML = '';
             matches.forEach(match => {
                 const li = document.createElement('li');
-                li.className = "px-4 py-3 hover:bg-indigo-50 cursor-pointer font-medium text-slate-700 transition";
+                li.className = "px-5 py-4 hover:bg-indigo-50 cursor-pointer font-semibold text-slate-700 transition text-lg";
                 li.textContent = match.name;
-                
-                // Clicking a match loads the graphs
                 li.addEventListener('click', () => {
                     searchInput.value = match.name;
                     autocompleteList.classList.add('hidden');
@@ -181,37 +191,37 @@
                 });
                 autocompleteList.appendChild(li);
             });
-
             autocompleteList.classList.remove('hidden');
         }
 
+        // Common Chart.js options used across main and modal charts
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false, // Allow chart to fill container height
+            plugins: { legend: { display: true } },
+            interaction: { mode: 'index', intersect: false }, // Better tooltips on hover
+        };
+
         /**
-         * Extracts data from the name node and builds/updates Chart.js instances
+         * Displays/Updates the main charts on the dashboard.
          */
         function displayData(name, nameNode) {
             dashboard.classList.remove('hidden');
             selectedNameTitle.textContent = name;
 
-            // Combine or read both male/female records if they exist under this single name node
-            const genders = Object.keys(nameNode.$stats); // Will contain ['M'], ['F'], or both ['M', 'F']
-            
-            // For simplicity, we grab the first available gender list, or mix them. 
-            // In a production app, you might want to show separate lines for M/F. 
-            // Here, we grab the dominant gender track for clean display.
-            const preferredGender = genders.includes('F') && (!genders.includes('M') || nameNode.$stats['F'].length >= nameNode.$stats['M'].length) ? 'F' : 'M';
-            const rawDataPoints = nameNode.$stats[preferredGender];
+            const genders = Object.keys(nameNode.$stats);
+            currentPreferredGender = genders.includes('F') && (!genders.includes('M') || nameNode.$stats['F'].length >= nameNode.$stats['M'].length) ? 'F' : 'M';
+            currentChartData = nameNode.$stats[currentPreferredGender]; // Store globally for modal use
 
-            // Map data to structure ready for Chart.js
-            const labels = rawDataPoints.map(point => point[0]); // Years
-            const counts = rawDataPoints.map(point => point[1]); // Counts
-            const ranks = rawDataPoints.map(point => point[2]);   // Ranks
+            const labels = currentChartData.map(point => point[0]); // Years
+            const counts = currentChartData.map(point => point[1]); // Counts
+            const ranks = currentChartData.map(point => point[2]);   // Ranks
 
-            const genderLabel = preferredGender === 'F' ? 'Female' : 'Male';
+            const genderLabel = currentPreferredGender === 'F' ? 'Female' : 'Male';
 
             // --- Chart 1: Counts ---
             if (countChartInstance) countChartInstance.destroy();
-            const ctxCount = document.getElementById('countChart').getContext('2d');
-            countChartInstance = new Chart(ctxCount, {
+            countChartInstance = new Chart(document.getElementById('countChart'), {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -222,20 +232,15 @@
                         backgroundColor: 'rgba(99, 102, 241, 0.1)',
                         fill: true,
                         tension: 0.1,
-                        borderWidth: 2
+                        borderWidth: 2.5
                     }]
                 },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: true } }
-                }
+                options: commonOptions
             });
 
             // --- Chart 2: Ranks ---
             if (rankChartInstance) rankChartInstance.destroy();
-            const ctxRank = document.getElementById('rankChart').getContext('2d');
-            rankChartInstance = new Chart(ctxRank, {
+            rankChartInstance = new Chart(document.getElementById('rankChart'), {
                 type: 'line',
                 data: {
                     labels: labels,
@@ -245,21 +250,100 @@
                         borderColor: '#06b6d4',
                         backgroundColor: 'transparent',
                         tension: 0.1,
-                        borderWidth: 2
+                        borderWidth: 2.5
                     }]
                 },
                 options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
+                    ...commonOptions, // Merge with common options
                     scales: {
                         y: {
-                            reverse: true, // Crucial part: rank 1 at the top, rank 1000 at bottom
-                            title: { display: true, text: 'Rank (Lower number = More popular)' }
+                            reverse: true, // Inverted scale: Rank 1 at top
+                            title: { display: true, text: 'Rank (Lower = More popular)' }
                         }
                     }
                 }
             });
         }
+
+        // --- Modal Specific Functions ---
+
+        /**
+         * Opens the modal window and renders the selected chart in high definition.
+         * @param {string} chartType - Either 'count' or 'rank'
+         */
+        function openModal(chartType) {
+            if (!currentChartData) return; // Ensure a name is selected
+
+            const name = selectedNameTitle.textContent;
+            const genderLabel = currentPreferredGender === 'F' ? 'Female' : 'Male';
+            const labels = currentChartData.map(point => point[0]);
+
+            chartModal.classList.remove('hidden');
+            document.body.classList.add('overflow-hidden'); // Prevent scrolling background
+
+            // Destroy existing modal chart instance if it exists
+            if (modalChartInstance) modalChartInstance.destroy();
+            const ctxModal = document.getElementById('modalChartCanvas').getContext('2d');
+
+            let chartConfig;
+
+            if (chartType === 'count') {
+                modalChartTitle.textContent = `${name} - Historical Birth Count`;
+                chartConfig = {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `${name} (${genderLabel} Births)`,
+                            data: currentChartData.map(point => point[1]),
+                            borderColor: '#6366f1',
+                            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                            fill: true,
+                            tension: 0.1,
+                            borderWidth: 3 // Slightly thicker for larger view
+                        }]
+                    },
+                    options: commonOptions
+                };
+            } else if (chartType === 'rank') {
+                modalChartTitle.textContent = `${name} - Popularity Rank History`;
+                chartConfig = {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `Popularity Rank`,
+                            data: currentChartData.map(point => point[2]),
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'transparent',
+                            tension: 0.1,
+                            borderWidth: 3
+                        }]
+                    },
+                    options: {
+                        ...commonOptions,
+                        scales: {
+                            y: {
+                                reverse: true, // Must maintain inverted scale
+                                title: { display: true, text: 'Rank (Lower number = More popular)' }
+                            }
+                        }
+                    }
+                };
+            }
+
+            // Create the new high-def chart instance
+            modalChartInstance = new Chart(ctxModal, chartConfig);
+        }
+
+        function closeModal() {
+            chartModal.classList.add('hidden');
+            document.body.classList.remove('overflow-hidden'); // Restore scrolling
+            
+            // Clean up the modal chart instance to free memory
+            if (modalChartInstance) modalChartInstance.destroy();
+        }
+
     </script>
 </body>
 </html>
